@@ -1,10 +1,16 @@
 import streamlit as st
 import numpy as np
+import pandas as pd
 import pickle
 import os
 import matplotlib.pyplot as plt
 import folium
 from streamlit_folium import st_folium
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 # ===================== SETTINGS =====================
 st.set_page_config("House Price Prediction", "🏠", layout="centered")
@@ -13,16 +19,108 @@ st.set_page_config("House Price Prediction", "🏠", layout="centered")
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(APP_DIR)
 MODEL_DIR = os.path.join(PROJECT_DIR, "Model")
+MODEL_FILES = ["linear_model.pkl", "rf_model.pkl", "location_encoder.pkl"]
+DATASET_CANDIDATES = [
+    os.path.join(PROJECT_DIR, "Dataset", "gujarat_house_price_.csv"),
+    os.path.join(PROJECT_DIR, "dataset", "gujarat_house_price_.csv"),
+]
+
+
+def _is_lfs_pointer(file_path):
+    """Return True when a file is a Git-LFS pointer (not the real model binary)."""
+    if not os.path.exists(file_path):
+        return False
+    try:
+        with open(file_path, "rb") as file_obj:
+            return file_obj.read(64).startswith(b"version https://git-lfs.github.com/spec/v1")
+    except OSError:
+        return False
+
+
+def _load_pickle(file_path):
+    with open(file_path, "rb") as file_obj:
+        return pickle.load(file_obj)
+
+
+def train_models(model_dir):
+    """Train models from bundled CSV and return trained objects."""
+    dataset_path = next((path for path in DATASET_CANDIDATES if os.path.exists(path)), None)
+    if dataset_path is None:
+        raise FileNotFoundError("Dataset file not found. Expected Dataset/gujarat_house_price_.csv")
+
+    data = pd.read_csv(dataset_path).dropna().drop_duplicates()
+    data.rename(columns={
+        "location": "Location",
+        "area_sqft": "Area",
+        "bhk": "BHK",
+        "bath": "Bathroom",
+        "price": "Price",
+    }, inplace=True)
+
+    q1 = data["Price"].quantile(0.25)
+    q3 = data["Price"].quantile(0.75)
+    iqr = q3 - q1
+    data = data[(data["Price"] >= q1 - 1.5 * iqr) & (data["Price"] <= q3 + 1.5 * iqr)]
+
+    encoder = LabelEncoder()
+    data["Location"] = encoder.fit_transform(data["Location"])
+    data["Price"] = np.log1p(data["Price"])
+
+    x = data[["Area", "BHK", "Bathroom", "Location"]]
+    y = data["Price"]
+    x_train, _, y_train, _ = train_test_split(x, y, test_size=0.2, random_state=42)
+
+    lr_model = Pipeline([("scaler", StandardScaler()), ("lr", LinearRegression())])
+    lr_model.fit(x_train, y_train)
+
+    rf_model = RandomForestRegressor(
+        n_estimators=250,
+        max_depth=22,
+        min_samples_split=5,
+        random_state=42,
+        n_jobs=-1,
+    )
+    rf_model.fit(x_train, y_train)
+
+    try:
+        os.makedirs(model_dir, exist_ok=True)
+        with open(os.path.join(model_dir, "linear_model.pkl"), "wb") as file_obj:
+            pickle.dump(lr_model, file_obj)
+        with open(os.path.join(model_dir, "rf_model.pkl"), "wb") as file_obj:
+            pickle.dump(rf_model, file_obj)
+        with open(os.path.join(model_dir, "location_encoder.pkl"), "wb") as file_obj:
+            pickle.dump(encoder, file_obj)
+    except OSError:
+        # Fallback still works even when filesystem is read-only in some hosts.
+        pass
+
+    return lr_model, rf_model, encoder
+
 
 @st.cache_resource
 def load_models():
     try:
-        lr = pickle.load(open(os.path.join(MODEL_DIR, "linear_model.pkl"), "rb"))
-        rf = pickle.load(open(os.path.join(MODEL_DIR, "rf_model.pkl"), "rb"))
-        encoder = pickle.load(open(os.path.join(MODEL_DIR, "location_encoder.pkl"), "rb"))
+        lr_path = os.path.join(MODEL_DIR, "linear_model.pkl")
+        rf_path = os.path.join(MODEL_DIR, "rf_model.pkl")
+        encoder_path = os.path.join(MODEL_DIR, "location_encoder.pkl")
+
+        needs_training = any(
+            (not os.path.exists(os.path.join(MODEL_DIR, model_file)))
+            or _is_lfs_pointer(os.path.join(MODEL_DIR, model_file))
+            for model_file in MODEL_FILES
+        )
+
+        if needs_training:
+            st.info("Pre-trained models not available on this deploy. Training once from dataset...")
+            lr_model, rf_model, encoder = train_models(MODEL_DIR)
+            return lr_model, rf_model, encoder
+
+        lr_model = _load_pickle(lr_path)
+        rf_model = _load_pickle(rf_path)
+        encoder = _load_pickle(encoder_path)
         if encoder is None:
             raise ValueError("Encoder is None! Check location_encoder.pkl")
-        return lr, rf, encoder
+        return lr_model, rf_model, encoder
     except Exception as e:
         st.error(f"🚨 Error loading models: {e}")
         return None, None, None
