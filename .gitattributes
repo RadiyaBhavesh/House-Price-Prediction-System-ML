@@ -1,2 +1,1 @@
-*.pkl binary
-*.csv binary
+#Intentionally left blank: do not track model artifacts with Git LFS for Streamlit deployment.
