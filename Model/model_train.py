@@ -11,7 +11,7 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
 # ================= LOAD DATA =================
 # Load Gujarat house price dataset
-data = pd.read_csv("../dataset/gujarat_house_price_.csv")
+data = pd.read_csv("../Dataset/gujarat_house_price_.csv")
 print(" Dataset Loaded :", data.shape)
 
 # ================= CLEANING =================
@@ -66,9 +66,9 @@ lr_pipeline.fit(X_train, y_train)
 
 # ================= RANDOM FOREST MODEL =================
 rf_model = RandomForestRegressor(
-    n_estimators=300,
-    max_depth=22,
-    min_samples_split=5,
+    n_estimators=40,
+    max_depth=12,
+    min_samples_split=8,
     random_state=42,
     n_jobs=-1
 )
