@@ -65,3 +65,13 @@ Random Forest Regressor
 Hybrid prediction using weighted average of both models
 
 Log-transformed target variable for better accuracy
+## 🚀 Deployment
+
+
+### Streamlit Cloud troubleshooting
+
+If Streamlit Cloud shows **"Failed to download the sources for repository"**, verify:
+
+- The selected branch exists (for this repo use `main` after pushing your latest commits).
+- The app file path is `app/app.py`.
+- Large model binaries are committed directly (no Git LFS pointers), so Streamlit can clone successfully.
